@@ -1,13 +1,42 @@
 use std::fs::File;
 use std::io;
 use std::io::Read;
+use std::env;
 
 // TODO: Read file.
 // TODO: tokenize file content
+struct Location {
+    row: usize,
+    col: usize,
+}
+
+impl Location {
+    fn new(row: usize, col: usize) -> Self { 
+        Location {
+            row: row,
+            col: col,
+        }
+    }
+
+    fn empty() -> Self {
+        Location {
+            row: 0,
+            col: 0,
+        }
+    }
+
+    fn change_loc(&mut self, row: usize, col: usize) {
+        // The indexing of raws and cols start from 1, so we need to increment it.
+        self.row = row + 1;
+        self.col = col + 1;
+    }
+}
+
 struct Token {
     token_type:  String,
     value: String,
     size:  usize,
+    loc:   Location,
 }
 
 impl Token {
@@ -16,14 +45,16 @@ impl Token {
             token_type: String::from(""),
             value: String::from(""),
             size: 0,
+            loc: Location::empty(),
         }
     }
     
-    fn new(t: &String, v: &String)  -> Self {
+    fn new(t: &String, v: &String, l: Location)  -> Self {
         Token {
             token_type: t.to_string(),
             value: v.to_string(),
             size: v.len(),
+            loc: l,
         }
     }
 
@@ -123,7 +154,16 @@ impl<'a> Lexer<'a> {
         println!("row: {}", self.row);
         println!("col: {}", self.col);
     }
-    
+
+    fn chop_line(&mut self) {
+        while self.get_current() != NL {
+            self.chop();
+        }
+
+        // Chop nl.
+        self.chop();
+    }
+
     fn chop(&mut self) -> usize {
         if self.is_not_empty()  {
             self.cur += 1;
@@ -133,10 +173,12 @@ impl<'a> Lexer<'a> {
             if c == NL {
                 self.row += 1;
                 self.col = 0;
+                println!("NL: Jump to: {}:{}", self.row + 1, self.col + 1);
+                
                 return self.cur;
             }
             
-            self.col += 1;            
+            self.col += 1;
         }
 
         return self.cur;
@@ -146,6 +188,7 @@ impl<'a> Lexer<'a> {
         let mut tmp = File::open(self.file_path)?; 
         tmp.read_to_end(&mut self.source)?;
         self.size = self.source.len();
+        
         Ok(())
     }
     
@@ -154,83 +197,92 @@ impl<'a> Lexer<'a> {
         match c {
             MINUS => {
                 token.write(MINUS);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
-                
             },
             PLUS => {
                 token.write(PLUS);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
                 
             },
             OPAR =>  {
                 token.write(OPAR);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
                 
             },
             CPAR =>  {
                 token.write(CPAR);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
                 
             },
 
             OCURLY => {
                 token.write(OCURLY);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
                 
             },
             
             CCURLY => {
                 token.write(CCURLY);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
                 
             },
             COMA => {
                 token.write(COMA);
+                token.loc.change_loc(self.row, self.col);
                 self.chop();
                 
             },
             LT => {
-                    token.write(LT);
-                    self.chop();
-                    if self.is_not_empty() {
-                        c = self.get_current();
-                        // =>, <=, >=?
-                        if c == EQUAL {
-                            token.write(EQUAL);
-                            self.chop();
-                        }
-                    }
-                    
-                },
-                GT => {
-                    token.write(GT);
-                    self.chop();
-                    if self.is_not_empty() {
-                        c = self.get_current();
-                        // =>, <=, >=?
-                        if c == EQUAL {
-                            token.write(EQUAL);
-                            self.chop();
-                        }
-                    }
-                    
-                },
-                EQUAL => {
-                    token.write(EQUAL);
-                    self.chop();
-                    
-                    if self.is_not_empty() {
-                        c = self.get_current();
-                        // =>, <=, >=?
-                        if c == GT {
-                            token.write(GT);
-                        }
+                token.write(LT);
+                token.loc.change_loc(self.row, self.col);
+                self.chop();
+                if self.is_not_empty() {
+                    c = self.get_current();
+                    // =>, <=, >=?
+                    if c == EQUAL {
+                        token.write(EQUAL);
                         self.chop();
-                    } 
-                },
-                _ => {
-                    return;
-                },
+                    }
+                }
+                
+            },
+            GT => {
+                token.write(GT);
+                token.loc.change_loc(self.row, self.col);
+                self.chop();
+                if self.is_not_empty() {
+                    c = self.get_current();
+                    // =>, <=, >=?
+                    if c == EQUAL {
+                        token.write(EQUAL);
+                        self.chop();
+                    }
+                }
+                
+            },
+            EQUAL => {
+                token.write(EQUAL);
+                token.loc.change_loc(self.row, self.col);
+                self.chop();
+                
+                if self.is_not_empty() {
+                    c = self.get_current();
+                    // =>, <=, >=?
+                    if c == GT {
+                        token.write(GT);
+                    }
+                    self.chop();
+                } 
+            },
+            _ => {
+                return;
+            },
         }
     }
     
@@ -240,14 +292,14 @@ impl<'a> Lexer<'a> {
             self.chop();
         }
     }
-
+    
     fn next(&mut self) -> Token {
         self.trim_spaces_left();
         let mut token = Token::empty();
 
-        
         // TODO: Match with already defined tokens.
         self.match_current(&mut token);
+        
         if token.size > 0 {
             return token;
         }
@@ -255,6 +307,8 @@ impl<'a> Lexer<'a> {
         let mut c: char = self.get_current(); 
         
         if c.is_alphanumeric() {
+            token.loc.change_loc(self.row, self.col);
+            
             while c.is_alphanumeric() || c.is_digit(10) && self.is_not_empty() {
                 // println!("ALPHA_CONSUME");
                 if c.is_ascii_punctuation() {
@@ -268,6 +322,8 @@ impl<'a> Lexer<'a> {
         }
 
         if c.is_digit(10) {
+            token.loc.change_loc(self.row, self.col);
+            
             while c.is_digit(10) && self.is_not_empty() {
                 // println!("ALPHA_CONSUME");
                 if c.is_ascii_punctuation() {
@@ -278,19 +334,7 @@ impl<'a> Lexer<'a> {
                 self.chop();
                 c = self.get_current();
             }
-        }
-
-        while self.is_not_empty() && !c.is_ascii_whitespace() {
-            // TODO: Match unknown tokens. 
-            if c.is_ascii_punctuation() {
-                break;
-            }
-
-            token.write(c);
-            self.chop();
-            c = self.get_current();
-            
-        }
+        } 
 
         return token;
     }
@@ -299,14 +343,28 @@ impl<'a> Lexer<'a> {
 #[warn(unused_variables)]
 fn main() -> io::Result<()>
 {
-    let mut lex: Lexer = Lexer::new("source");
+    // Command line args
+    let args: Vec<String> = env::args().collect();
+    
+    if args.len() < 2 {
+        
+        println!("---------------------------------");
+        println!("The File path was not provided.");
+        println!("Usage: {} <path>", args[0]);
+        println!("---------------------------------");
+        
+        return Ok(());
+    }
+
+    let mut lex: Lexer = Lexer::new(&args[1]);
     
     lex.display();
     lex.read()?;
     
     let mut t: Token = lex.next();
+    
     while lex.is_not_empty() {
-        println!("{}", t.value);
+        println!("{}:{}:{} {}", args[1], t.loc.row, t.loc.col, t.value);
         t = lex.next();
     }
         
