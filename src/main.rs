@@ -27,10 +27,9 @@ impl Token {
         }
     }
 
-    fn write(&mut self, c: char) -> String {
+    fn write(&mut self, c: char) {
         self.value += &String::from(c);
         self.size += 1;
-        return self.value.clone();
     }
 }
 
@@ -103,7 +102,10 @@ impl<'a> Lexer<'a> {
 
 
     fn get_char(&mut self, index: usize) -> char {   
-        return char::from(self.source[index]);
+        if self.is_not_empty() {
+            return char::from(self.source[index]);
+        }
+        return '\0';
     }
 
     fn get_current(&mut self) -> char {
@@ -149,7 +151,6 @@ impl<'a> Lexer<'a> {
     
     fn match_current(&mut self, token: &mut Token)  {
         let mut c: char = self.get_current();
-        println!("Matching..");
         match c {
             MINUS => {
                 token.write(MINUS);
@@ -243,28 +244,36 @@ impl<'a> Lexer<'a> {
     fn next(&mut self) -> Token {
         self.trim_spaces_left();
         let mut token = Token::empty();
-        
+
         
         // TODO: Match with already defined tokens.
         self.match_current(&mut token);
-            
         if token.size > 0 {
             return token;
         }
         
         let mut c: char = self.get_current(); 
+        
         if c.is_alphanumeric() {
             while c.is_alphanumeric() || c.is_digit(10) && self.is_not_empty() {
                 // println!("ALPHA_CONSUME");
+                if c.is_ascii_punctuation() {
+                    break;
+                }
                 token.write(c);      
                 self.chop();
                 c = self.get_current();
+                
             }
         }
 
         if c.is_digit(10) {
             while c.is_digit(10) && self.is_not_empty() {
                 // println!("ALPHA_CONSUME");
+                if c.is_ascii_punctuation() {
+                    break;
+                }
+
                 token.write(c);
                 self.chop();
                 c = self.get_current();
@@ -273,8 +282,14 @@ impl<'a> Lexer<'a> {
 
         while self.is_not_empty() && !c.is_ascii_whitespace() {
             // TODO: Match unknown tokens. 
+            if c.is_ascii_punctuation() {
+                break;
+            }
+
             token.write(c);
+            self.chop();
             c = self.get_current();
+            
         }
 
         return token;
@@ -289,9 +304,12 @@ fn main() -> io::Result<()>
     lex.display();
     lex.read()?;
     
-    let t: Token = lex.next();
-    println!("{}", t.value);
-    
+    let mut t: Token = lex.next();
+    while lex.is_not_empty() {
+        println!("{}", t.value);
+        t = lex.next();
+    }
+        
     Ok(())
 }
 
