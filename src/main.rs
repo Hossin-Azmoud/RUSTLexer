@@ -1,107 +1,14 @@
+#[allow(non_snake_case, dead_code)]
 use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::env;
-
+use std::fmt;
+use std::collections::HashMap;
 // TODO: Read file.
 // TODO: tokenize file content
-struct Location {
-    row: usize,
-    col: usize,
-}
-
-impl Location {
-    fn new(row: usize, col: usize) -> Self { 
-        Location {
-            row: row,
-            col: col,
-        }
-    }
-
-    fn empty() -> Self {
-        Location {
-            row: 0,
-            col: 0,
-        }
-    }
-
-    fn change_loc(&mut self, row: usize, col: usize) {
-        // The indexing of raws and cols start from 1, so we need to increment it.
-        self.row = row + 1;
-        self.col = col + 1;
-    }
-}
-
-struct Token {
-    token_type:  String,
-    value: String,
-    size:  usize,
-    loc:   Location,
-}
-
-impl Token {
-    fn empty() -> Self {
-        Token {
-            token_type: String::from(""),
-            value: String::from(""),
-            size: 0,
-            loc: Location::empty(),
-        }
-    }
-    
-    fn new(t: &String, v: &String, l: Location)  -> Self {
-        Token {
-            token_type: t.to_string(),
-            value: v.to_string(),
-            size: v.len(),
-            loc: l,
-        }
-    }
-
-    fn write(&mut self, c: char) {
-        self.value += &String::from(c);
-        self.size += 1;
-    }
-}
-
-struct Lexer<'a> {
-    file_path: &'a str,
-    source:    Vec<u8>,
-    cur:       usize,
-    row:       usize,
-    col:       usize,
-    size:      usize,
-} 
-
-/*
-0 => func
-1 => =>
-2 => (
-3 => (
-4 => x
-5 => ,
-6 => y
-7 => )
-8 => =>
-9 => x
-10 => +
-11 => y
-12 => )
-13 => write
-14 => (
-15 => func
-16 => (
-17 => 1
-18 => ,
-19 => 2
-20 => )
-21 => )
-22 => 1
-23 => >=
-24 => 2
-*/
-
-
+pub const DQUOTE:   char   = '\"';
+pub const SQUOTE:   char   = '\'';
 pub const SPACE:     char  = ' ';
 pub const NL:        char  = '\n';
 pub const OPAR:      char  = '(';
@@ -115,6 +22,141 @@ pub const SEMICOLON: char  = ';';
 pub const EQUAL:     char  = '=';
 pub const GT:        char  = '>';
 pub const LT:        char  = '<';
+pub const QM:        char  = '!';
+
+#[derive(Copy,Clone)]
+#[allow(dead_code)]
+enum TokenT {
+    // Special tokens.
+    
+    DQUOTE__,
+    SQUOTE__,
+    OPAR__,
+    CPAR__,
+    OCURLY__,
+    CCURLY__,
+    PLUS__,
+    MINUS__,
+    COMA__,
+    SEMICOLON__,
+    EQUAL__,
+    GT__,
+    LT__,
+    QM__,
+    
+    // Other
+    NONE__,
+    NUMBER__,
+    STRING__,
+    VARNAME__,
+}
+
+fn make_token_table() -> HashMap<char, TokenT> {
+    let mut map: HashMap<char ,TokenT> = HashMap::new();
+    
+    //Adding all the keys. 
+    map.insert(DQUOTE, TokenT::DQUOTE__);
+    map.insert(SQUOTE, TokenT::SQUOTE__);
+    map.insert(OPAR, TokenT::OPAR__);
+    map.insert(CPAR, TokenT::CPAR__);
+    map.insert(OCURLY, TokenT::OCURLY__);
+    map.insert(CCURLY, TokenT::CCURLY__);
+    map.insert(PLUS, TokenT::PLUS__);
+    map.insert(MINUS, TokenT::MINUS__);
+    map.insert(COMA, TokenT::COMA__);
+    map.insert(SEMICOLON, TokenT::SEMICOLON__);
+    map.insert(EQUAL, TokenT::EQUAL__);
+    map.insert(GT, TokenT::GT__);
+    map.insert(LT, TokenT::LT__);
+    map.insert(QM, TokenT::QM__);
+    
+    // Return the map.
+    map
+}
+
+impl fmt::Display for TokenT {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        
+        let printable = match *self {
+            TokenT::NONE__      => "NONE__",
+            TokenT::DQUOTE__    => "DQUOTE__",
+            TokenT::SQUOTE__    => "SQUOTE__",
+            TokenT::OPAR__      => "OPAR__",
+            TokenT::CPAR__      => "CPAR__",
+            TokenT::OCURLY__    => "OCURLY__",
+            TokenT::CCURLY__    => "CCURLY__",
+            TokenT::PLUS__      => "PLUS__",
+            TokenT::MINUS__     => "MINUS__",
+            TokenT::COMA__      => "COMA__",
+            TokenT::SEMICOLON__ => "SEMICOLON__",
+            TokenT::EQUAL__     => "EQUAL__",
+            TokenT::GT__        => "GT__",
+            TokenT::LT__        => "LT__",
+            TokenT::NUMBER__    => "NUMBER__",
+            TokenT::STRING__    => "STRING__",
+            TokenT::QM__        => "QM__",
+            TokenT::VARNAME__   => "VARNAME__",
+        }; 
+       
+        write!(f, "{}", printable)
+    }
+}
+
+struct Location {
+    row: usize,
+    col: usize,
+}
+
+impl Location {
+    fn empty() -> Self {
+        Location {
+            row: 0,
+            col: 0,
+        }
+    }
+
+    fn change_loc(&mut self, row: usize, col: usize) {
+        // The indexing of raws and cols start from 1, so we need to increment it.
+        self.row = row;
+        self.col = col;
+    }
+}
+
+struct Token {
+    value:       String,
+    token_type:  TokenT,
+    size:        usize,
+    loc:         Location,
+}
+
+impl Token {
+    fn empty() -> Self {
+        Token {
+            value: String::from(""),
+            token_type: TokenT::NONE__,
+            size: 0,
+            loc: Location::empty(),
+        }
+    }
+    
+    
+    fn write(&mut self, c: char) {
+        self.value += &String::from(c);
+        self.size += 1;
+    }
+
+}
+
+struct Lexer<'a> {
+    file_path: &'a str,
+    source:    Vec<u8>,
+    cur:       usize,
+    row:       usize,
+    col:       usize,
+    size:      usize,
+    token_table: HashMap<char, TokenT>,
+} 
+
 
 impl<'a> Lexer<'a> {
     
@@ -123,11 +165,11 @@ impl<'a> Lexer<'a> {
         return Lexer {
             file_path: path,
             source:    vec![],
-            
             cur:       0,
-            row:       0,
-            col:       0,
+            row:       1,
+            col:       1,
             size:      0,
+            token_table: make_token_table(),
         };
     }
 
@@ -136,6 +178,7 @@ impl<'a> Lexer<'a> {
         if self.is_not_empty() {
             return char::from(self.source[index]);
         }
+        
         return '\0';
     }
 
@@ -155,26 +198,16 @@ impl<'a> Lexer<'a> {
         println!("col: {}", self.col);
     }
 
-    fn chop_line(&mut self) {
-        while self.get_current() != NL {
-            self.chop();
-        }
-
-        // Chop nl.
-        self.chop();
-    }
-
     fn chop(&mut self) -> usize {
         if self.is_not_empty()  {
             self.cur += 1;
-            
+    
             let c: char = self.get_current();
-            
+                        
             if c == NL {
-                self.row += 1;
-                self.col = 0;
-                println!("NL: Jump to: {}:{}", self.row + 1, self.col + 1);
-                
+                self.row  += 1;
+                self.col =  0;
+                 
                 return self.cur;
             }
             
@@ -191,99 +224,27 @@ impl<'a> Lexer<'a> {
         
         Ok(())
     }
-    
-    fn match_current(&mut self, token: &mut Token)  {
-        let mut c: char = self.get_current();
-        match c {
-            MINUS => {
-                token.write(MINUS);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-            },
-            PLUS => {
-                token.write(PLUS);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-            },
-            OPAR =>  {
-                token.write(OPAR);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-            },
-            CPAR =>  {
-                token.write(CPAR);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-            },
 
-            OCURLY => {
-                token.write(OCURLY);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-            },
-            
-            CCURLY => {
-                token.write(CCURLY);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-            },
-            COMA => {
-                token.write(COMA);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-            },
-            LT => {
-                token.write(LT);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                if self.is_not_empty() {
-                    c = self.get_current();
-                    // =>, <=, >=?
-                    if c == EQUAL {
-                        token.write(EQUAL);
-                        self.chop();
-                    }
-                }
-                
-            },
-            GT => {
-                token.write(GT);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                if self.is_not_empty() {
-                    c = self.get_current();
-                    // =>, <=, >=?
-                    if c == EQUAL {
-                        token.write(EQUAL);
-                        self.chop();
-                    }
-                }
-                
-            },
-            EQUAL => {
-                token.write(EQUAL);
-                token.loc.change_loc(self.row, self.col);
-                self.chop();
-                
-                if self.is_not_empty() {
-                    c = self.get_current();
-                    // =>, <=, >=?
-                    if c == GT {
-                        token.write(GT);
-                    }
-                    self.chop();
-                } 
-            },
-            _ => {
-                return;
-            },
+    fn match_current(&mut self, token: &mut Token)  {
+        let c: char = self.get_current();
+        // it is a known token.
+        if self.token_table.contains_key(&c) {
+            token.write(c);
+            token.token_type = self.token_table[&c];
+            token.loc.change_loc(self.row, self.col);
+            self.chop();            
+            return;
         }
+
+        if c.is_ascii_punctuation(){
+            token.write(c);
+            token.token_type = TokenT::NONE__;
+            token.loc.change_loc(self.row, self.col);
+            self.chop();
+
+            return;
+        }
+
     }
     
     fn trim_spaces_left(&mut self)  {
@@ -292,11 +253,52 @@ impl<'a> Lexer<'a> {
             self.chop();
         }
     }
+
+
+    fn collect_str(&mut self, token: &mut Token){
+        token.token_type = TokenT::STRING__;
+        let mut c: char = self.get_current();
+        
+        while c.is_alphanumeric() || c.is_digit(10) && self.is_not_empty() {
+            if c.is_ascii_punctuation() {
+                break;
+            }
+            
+            if c.is_ascii_whitespace() {
+                break;
+            }
+
+            token.write(c);
+            self.chop();
+
+            c = self.get_current();
+        }
+    }
     
+    fn collect_number(&mut self, token: &mut Token) {
+        
+        token.token_type = TokenT::NUMBER__;
+        let mut c: char = self.get_current();
+
+        while self.is_not_empty() && c.is_digit(10) {
+            
+            if c.is_ascii_punctuation() {
+                break;
+            }
+
+            if c.is_ascii_whitespace() {
+                break;
+            }
+            
+            token.write(c);
+            self.chop();
+            c = self.get_current();
+        }
+    }
+
     fn next(&mut self) -> Token {
         self.trim_spaces_left();
         let mut token = Token::empty();
-
         // TODO: Match with already defined tokens.
         self.match_current(&mut token);
         
@@ -304,37 +306,16 @@ impl<'a> Lexer<'a> {
             return token;
         }
         
-        let mut c: char = self.get_current(); 
-        
+        let c: char = self.get_current(); 
+        token.loc.change_loc(self.row, self.col);
+
         if c.is_alphanumeric() {
-            token.loc.change_loc(self.row, self.col);
-            
-            while c.is_alphanumeric() || c.is_digit(10) && self.is_not_empty() {
-                // println!("ALPHA_CONSUME");
-                if c.is_ascii_punctuation() {
-                    break;
-                }
-                token.write(c);      
-                self.chop();
-                c = self.get_current();
-                
-            }
+            self.collect_str(&mut token);
         }
 
-        if c.is_digit(10) {
-            token.loc.change_loc(self.row, self.col);
-            
-            while c.is_digit(10) && self.is_not_empty() {
-                // println!("ALPHA_CONSUME");
-                if c.is_ascii_punctuation() {
-                    break;
-                }
-
-                token.write(c);
-                self.chop();
-                c = self.get_current();
-            }
-        } 
+        if c.is_digit(10) {            
+            self.collect_number(&mut token);            
+        }
 
         return token;
     }
@@ -343,7 +324,7 @@ impl<'a> Lexer<'a> {
 #[warn(unused_variables)]
 fn main() -> io::Result<()>
 {
-    // Command line args
+        // Command line args
     let args: Vec<String> = env::args().collect();
     
     if args.len() < 2 {
@@ -357,17 +338,17 @@ fn main() -> io::Result<()>
     }
 
     let mut lex: Lexer = Lexer::new(&args[1]);
-    
+
     lex.display();
     lex.read()?;
     
     let mut t: Token = lex.next();
     
     while lex.is_not_empty() {
-        println!("{}:{}:{} {}", args[1], t.loc.row, t.loc.col, t.value);
+        println!("{}:{}:{} {} | {}", args[1], t.loc.row, t.loc.col, t.value, t.token_type);
         t = lex.next();
-    }
-        
+    } 
+    
     Ok(())
 }
 
