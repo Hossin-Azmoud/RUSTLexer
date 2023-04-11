@@ -5,8 +5,8 @@ use std::io::Read;
 use std::env;
 use std::fmt;
 use std::collections::HashMap;
-// TODO: Read file.
-// TODO: tokenize file content
+
+
 pub const DQUOTE:   char   = '\"';
 pub const SQUOTE:   char   = '\'';
 pub const SPACE:     char  = ' ';
@@ -23,12 +23,14 @@ pub const EQUAL:     char  = '=';
 pub const GT:        char  = '>';
 pub const LT:        char  = '<';
 pub const QM:        char  = '!';
+pub const COMMENT:   char  = '/';
 
-#[derive(Copy,Clone)]
+#[derive(Copy, Clone, PartialEq)]
 #[allow(dead_code)]
+
 enum TokenT {
     // Special tokens.
-    
+    COMMENT__,
     DQUOTE__,
     SQUOTE__,
     OPAR__,
@@ -96,6 +98,7 @@ impl fmt::Display for TokenT {
             TokenT::STRING__    => "STRING__",
             TokenT::QM__        => "QM__",
             TokenT::VARNAME__   => "VARNAME__",
+            TokenT::COMMENT__   => "COMMENT__",
         }; 
        
         write!(f, "{}", printable)
@@ -144,7 +147,17 @@ impl Token {
         self.value += &String::from(c);
         self.size += 1;
     }
+    
+    fn display_token(&mut self, file: &str) {
+        println!();  
+        
+        println!("r: {}", self.loc.row);
+        println!("c: {}", self.loc.col);
+        println!("t: {}", self.token_type);
+        println!("v: {}", self.value);
 
+        println!();  
+    }
 }
 
 struct Lexer<'a> {
@@ -225,26 +238,49 @@ impl<'a> Lexer<'a> {
         Ok(())
     }
 
-    fn match_current(&mut self, token: &mut Token)  {
-        let c: char = self.get_current();
+    fn match_current(&mut self, token: &mut Token) -> Result<(), io::Error> {
+        let mut c: char = self.get_current();
         // it is a known token.
+        token.loc.change_loc(self.row, self.col);
+        
         if self.token_table.contains_key(&c) {
             token.write(c);
             token.token_type = self.token_table[&c];
-            token.loc.change_loc(self.row, self.col);
-            self.chop();            
-            return;
+            self.chop();
+            return Ok(());
         }
 
         if c.is_ascii_punctuation(){
+            if c == COMMENT {
+                
+                token.token_type = TokenT::COMMENT__;
+                token.write(c);
+                
+                self.chop();
+                c = self.get_current();
+                
+                if c != COMMENT {
+                    let err_text = format!("Expected a / in Line {}: column: {} found: |{}|", self.row, self.col, c);
+                    let err = io::Error::new(io::ErrorKind::Other, err_text);
+                    return Err(err);
+                }
+                // Write the second char /
+                while c != NL {
+                    token.write(c);
+                    self.chop();
+                    c = self.get_current();
+                }
+                
+
+                return Ok(());
+            };
+            
             token.write(c);
             token.token_type = TokenT::NONE__;
-            token.loc.change_loc(self.row, self.col);
             self.chop();
-
-            return;
         }
 
+        return Ok(());
     }
     
     fn trim_spaces_left(&mut self)  {
@@ -296,297 +332,79 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn next(&mut self) -> Token {
+    fn next(&mut self) -> Result<Token, io::Error> {
+        
         self.trim_spaces_left();
         let mut token = Token::empty();
+        
         // TODO: Match with already defined tokens.
-        self.match_current(&mut token);
-        
-        if token.size > 0 {
-            return token;
-        }
-        
-        let c: char = self.get_current(); 
-        token.loc.change_loc(self.row, self.col);
+        let res = self.match_current(&mut token);
+         
+        match res {
+            Err(e) => return Err(e),
+            Ok(())   => {
+                if token.size > 0 { 
+                    return Ok(token);
+                }
+                 
+                let c: char = self.get_current(); 
+                 
+                token.loc.change_loc(self.row, self.col);
+                if c.is_alphanumeric() {
+                    self.collect_str(&mut token);
+                }
 
-        if c.is_alphanumeric() {
-            self.collect_str(&mut token);
-        }
+                if c.is_digit(10) {            
+                    self.collect_number(&mut token);            
+                }
 
-        if c.is_digit(10) {            
-            self.collect_number(&mut token);            
+                return Ok(token);
+            }
         }
-
-        return token;
     }
 }
 
 #[warn(unused_variables)]
-fn main() -> io::Result<()>
+fn main() -> Result<(), io::Error>
 {
-        // Command line args
+    // Command line args
     let args: Vec<String> = env::args().collect();
+    let program = &args[0];
     
     if args.len() < 2 {
         
         println!("---------------------------------");
         println!("The File path was not provided.");
-        println!("Usage: {} <path>", args[0]);
+        println!("Usage: {} <path>", program);
         println!("---------------------------------");
-        
         return Ok(());
     }
-
-    let mut lex: Lexer = Lexer::new(&args[1]);
+    
+    let src = &args[1];
+    
+    let mut lex: Lexer = Lexer::new(&src);
 
     lex.display();
     lex.read()?;
     
-    let mut t: Token = lex.next();
+    let mut t;
+    
+   
+    println!("------------------ LEXER -------------------");
     
     while lex.is_not_empty() {
-        println!("{}:{}:{} {} | {}", args[1], t.loc.row, t.loc.col, t.value, t.token_type);
         t = lex.next();
-    } 
+        match t {
+            Ok(mut token) => token.display_token(&src),
+            Err(e) => {
+                println!("ERROR: {}", e);
+                return Ok(());
+            },
+        }
+    }
+
+    println!("--------------------------------------");
     
-    Ok(())
+    return Ok(());
 }
-
-/*
-#[warn(dead_code)]
-fn main1() -> io::Result<()>{
-    
-    const SPACE:     char  = ' ';
-    const NL:        char  = '\n';
-    
-    const OPAR:      char  = '(';
-    const CPAR:      char  = ')';
-    const OCURLY:    char  = '{';
-    const CCURLY:    char  = '}';
-    const PLUS:      char  = '+';
-    const MINUS:     char  = '-';
-    const COMA:      char  = ',';
-    const SEMICOLON: char  = ';';
-    const EQUAL:     char  = '=';
-    const GT:        char  = '>';
-    const LT:        char  = '<';
-
-    let mut source = File::open("source")?;
-    let mut contents = vec![];
-    
-    source.read_to_end(&mut contents)?;
-
-    let mut index:        usize  = 0;
-    let mut token_index:  usize  = 0;
-    let mut token_buffer: String = String::new();
-    let length: usize            = contents.len();
-    
-    while index < length {
-
-        let mut c: char = char::from(contents[index]);
-
-        while !c.is_ascii_whitespace() && index < length
-        {
-            match c {
-                MINUS => {
-                    token_buffer = String::from(MINUS);
-                    index += 1;
-                    break;
-                },
-                LT => {
-                    token_buffer = String::from(LT);
-                    index += 1;
-                    if index < length {
-                        c = char::from(contents[index]);
-                        // =>, <=, >=?
-                        if c == EQUAL {
-                            token_buffer += &String::from(EQUAL);
-                            index += 1;
-                        }
-                    }
-                    break;
-                },
-                GT => {
-                    token_buffer = String::from(GT);
-                    index += 1;
-                    if index < length {
-                        c = char::from(contents[index]);
-                        // =>, <=, >=?
-                        if c == EQUAL {
-                            token_buffer += &String::from(EQUAL);
-                            index += 1;
-                        }
-                    }
-                    break;
-                },
-
-                SPACE => {
-                    index += 1;
-                    break;
-                },
-                EQUAL => {
-                    token_buffer = String::from(EQUAL);
-                    index += 1;
-                    
-                    if index < length {
-                        c = char::from(contents[index]);
-                        // =>, <=, >=?
-                        if c == GT {
-                            token_buffer += &String::from(GT);
-                        }
-                        index += 1;
-                    }
-                    break;
-                },
-                OPAR =>  {
-                    token_buffer = String::from(OPAR);
-                    index += 1;
-                    break;
-                },
-                CPAR =>  {
-                    token_buffer = String::from(CPAR);
-                    index += 1;
-                    break;
-                },
-
-                OCURLY => {
-                    token_buffer = String::from(OCURLY);
-                    index += 1;
-                    break;
-                },
-                
-                CCURLY => {
-                    token_buffer = String::from(CCURLY);
-                    index += 1;
-                    break;
-                },
-                COMA => {
-                    token_buffer = String::from(COMA);
-                    index += 1;
-                    break;
-                },
-                SEMICOLON => {
-                    token_buffer = String::from(SEMICOLON);
-                    index += 1;
-                    break;
-                },
-                
-                PLUS => {
-                    token_buffer = String::from(PLUS);
-                    index += 1;
-                    break;
-                },
-
-                _ => {
-                    if c.is_alphanumeric() {
-                        while c.is_alphanumeric() || c.is_digit(10) {
-                            // println!("ALPHA_CONSUME");
-                            if c == SPACE {
-                                break;
-                            }
-                            token_buffer += &String::from(c);
-                                  
-                            if index < contents.len() { index += 1; } else {
-                                break;
-                            }
-                            
-                            c = char::from(contents[index]);
-                        }
-                    } else if c.is_digit(10) {
-                        
-                        while c.is_digit(10) {
-                            //println!("DIGIT_CONSUME");
-                            if c == SPACE {                
-                                break;
-                            }
-                        
-                            token_buffer += &String::from(c);
-                                  
-                            if index < contents.len() { index += 1; } else {
-                                break;
-                            }
-                            
-                            c = char::from(contents[index]);
-                        }
-                        
-                    } else {
-                        token_buffer = String::from(c);
-                    }
-                    
-                    break;
-                }
-            }
-        }
-        
-        /*        
-        
-        if token_buffer.len() > 0 {
-            print!("{} => { }\n", token_index, token_buffer);
-            token_buffer = String::new();
-        }
-        
-        */
-        
-        if token_buffer.len() > 0 {
-            print!("{} => { }\n", token_index, token_buffer);
-            token_buffer = String::new();
-            token_index += 1;
-        }
-
-        if c.is_ascii_whitespace() {
-            index += 1; 
-        }
-        
-    }
-    
- 
-    Ok(())
-
-}
-*/
-
-
-
-
-/*
-struct token {
-    Type:  String,
-    Value: String,
-};
-
-struct lexer {
-    file_path: &str,
-    source: String,
-    cur: i32,
-    row: i32,
-    col: i32,
-};
-
-impl lexer {
-
-    fn new(file_path: &str) -> self {
-        lexer {
-            file_path: file_path,
-            source: String::new(),
-            cur: 0,
-            row: 0,
-            col: 0,
-        };   
-    }
-    
-    fn next(&mut self) -> token {
-        return 
-    }
-    
-    fn start(&mut self) {
-        let mut f = File::open(self.file_path)?;
-        let mut buffer = ;
-        f.read_to_string(&mut self.source)?;
-    }
-
-    fn is_empty(&mut self) {
-        
-    }
-}
-*/
 

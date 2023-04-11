@@ -1,2 +1,7 @@
-print!(1);!!!!!! #/\@@@
-Hello
+/ COMMENT
+
+define init
+
+init = 1
+
+print(init)
