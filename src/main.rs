@@ -1,11 +1,12 @@
 #[allow(non_snake_case, dead_code)]
+
 use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::env;
 use std::fmt;
 use std::collections::HashMap;
-
+use std::process::exit;
 
 pub const DQUOTE:   char   = '\"';
 pub const SQUOTE:   char   = '\'';
@@ -24,6 +25,12 @@ pub const GT:        char  = '>';
 pub const LT:        char  = '<';
 pub const QM:        char  = '!';
 pub const COMMENT:   char  = '/';
+pub const ESCAPE:    char  = '\\';
+pub const PRINT:     &str = "print";
+
+pub fn make_error(text: &str) -> io::Error { 
+    return io::Error::new(io::ErrorKind::Other, text);    
+}
 
 #[derive(Copy, Clone, PartialEq)]
 #[allow(dead_code)]
@@ -45,12 +52,15 @@ enum TokenT {
     GT__,
     LT__,
     QM__,
-    
+
     // Other
     NONE__,
     NUMBER__,
     STRING__,
     VARNAME__,
+    
+    // Built-in functions.
+    PRINT__,
 }
 
 fn make_token_table() -> HashMap<char, TokenT> {
@@ -71,7 +81,7 @@ fn make_token_table() -> HashMap<char, TokenT> {
     map.insert(GT, TokenT::GT__);
     map.insert(LT, TokenT::LT__);
     map.insert(QM, TokenT::QM__);
-    
+
     // Return the map.
     map
 }
@@ -99,6 +109,7 @@ impl fmt::Display for TokenT {
             TokenT::QM__        => "QM__",
             TokenT::VARNAME__   => "VARNAME__",
             TokenT::COMMENT__   => "COMMENT__",
+            TokenT::PRINT__  => "PRINT__",
         }; 
        
         write!(f, "{}", printable)
@@ -111,6 +122,7 @@ struct Location {
 }
 
 impl Location {
+    
     fn empty() -> Self {
         Location {
             row: 0,
@@ -123,6 +135,7 @@ impl Location {
         self.row = row;
         self.col = col;
     }
+
 }
 
 struct Token {
@@ -133,6 +146,7 @@ struct Token {
 }
 
 impl Token {
+
     fn empty() -> Self {
         Token {
             value: String::from(""),
@@ -148,9 +162,7 @@ impl Token {
         self.size += 1;
     }
     
-    fn display_token(&mut self, file: &str) {
-        println!();  
-        
+    fn display_token(&mut self) {
         println!("r: {}", self.loc.row);
         println!("c: {}", self.loc.col);
         println!("t: {}", self.token_type);
@@ -191,12 +203,20 @@ impl<'a> Lexer<'a> {
         if self.is_not_empty() {
             return char::from(self.source[index]);
         }
-        
+
         return '\0';
+    }
+    
+    fn get_prev(&mut self) -> char {
+        return self.get_char(self.cur - 1);
     }
 
     fn get_current(&mut self) -> char {
         return self.get_char(self.cur);
+    }
+    
+    fn get_next(&mut self) -> char {
+        return self.get_char(self.cur + 1);
     }
 
     fn is_not_empty(&mut self) -> bool {
@@ -233,9 +253,62 @@ impl<'a> Lexer<'a> {
     fn read(&mut self) -> io::Result<()> {
         let mut tmp = File::open(self.file_path)?; 
         tmp.read_to_end(&mut self.source)?;
-        self.size = self.source.len();
-        
+        self.size = self.source.len();        
         Ok(())
+    }
+    
+    fn make_error(&mut self, text: &str) -> io::Error { 
+        return io::Error::new(io::ErrorKind::Other, text);
+    
+    }
+    
+    fn handle_comment(&mut self, c: &mut char,token: &mut Token)  -> Result<(), io::Error> {
+        
+        // write '/' then remove it?
+        token.token_type = TokenT::COMMENT__;
+        token.write(*c);
+        self.chop();
+
+        *c = self.get_current();
+        
+        // check for '/' in the next char, if it is not '/' then error.
+        
+        if *c != COMMENT {
+            let mut err_text = format!("expected // but found | {} |\n", *c);
+            err_text     += &format!("you can solve this by replacing {} with //", *c);
+            return Err(make_error(&err_text));
+        }
+ 
+        // COMMENT
+        while *c != NL {
+            token.write(*c);
+            self.chop();
+            *c = self.get_current();
+        }
+
+        return Ok(());
+    }
+    
+    fn write_to_token(&mut self, token: &mut Token, type_: TokenT, c: char) {        
+        token.write(c);
+        token.token_type = type_;
+        self.chop();
+    }
+
+    fn write_to_special_token(&mut self, token: &mut Token, c: char) {
+        if self.token_table.contains_key(&c) {
+            let t = self.token_table[&c];
+            
+            if t != TokenT::DQUOTE__ {
+                self.write_to_token(token, t, c);
+                return;
+            }
+            token.token_type = t;
+            self.chop();
+            return;
+        }
+
+        println!("USED FUNC(write_to_special_token) WITH UNKNOWN SPECIAL TOKN.");
     }
 
     fn match_current(&mut self, token: &mut Token) -> Result<(), io::Error> {
@@ -244,35 +317,17 @@ impl<'a> Lexer<'a> {
         token.loc.change_loc(self.row, self.col);
         
         if self.token_table.contains_key(&c) {
-            token.write(c);
-            token.token_type = self.token_table[&c];
-            self.chop();
+            self.write_to_special_token(token, c);
             return Ok(());
         }
 
-        if c.is_ascii_punctuation(){
+        if c.is_ascii_punctuation() {
             if c == COMMENT {
-                
-                token.token_type = TokenT::COMMENT__;
-                token.write(c);
-                
-                self.chop();
-                c = self.get_current();
-                
-                if c != COMMENT {
-                    let err_text = format!("Expected a / in Line {}: column: {} found: |{}|", self.row, self.col, c);
-                    let err = io::Error::new(io::ErrorKind::Other, err_text);
-                    return Err(err);
+                let result = self.handle_comment(&mut c, token);
+                match result {
+                    Ok(()) => return Ok(()),
+                    Err(e) => return Err(e)
                 }
-                // Write the second char /
-                while c != NL {
-                    token.write(c);
-                    self.chop();
-                    c = self.get_current();
-                }
-                
-
-                return Ok(());
             };
             
             token.write(c);
@@ -290,11 +345,10 @@ impl<'a> Lexer<'a> {
         }
     }
 
-
     fn collect_str(&mut self, token: &mut Token){
-        token.token_type = TokenT::STRING__;
+        token.token_type = TokenT::VARNAME__;
         let mut c: char = self.get_current();
-        
+
         while c.is_alphanumeric() || c.is_digit(10) && self.is_not_empty() {
             if c.is_ascii_punctuation() {
                 break;
@@ -306,16 +360,13 @@ impl<'a> Lexer<'a> {
 
             token.write(c);
             self.chop();
-
             c = self.get_current();
         }
     }
     
-    fn collect_number(&mut self, token: &mut Token) {
-        
+    fn collect_number(&mut self, token: &mut Token) { 
         token.token_type = TokenT::NUMBER__;
         let mut c: char = self.get_current();
-
         while self.is_not_empty() && c.is_digit(10) {
             
             if c.is_ascii_punctuation() {
@@ -339,23 +390,56 @@ impl<'a> Lexer<'a> {
         
         // TODO: Match with already defined tokens.
         let res = self.match_current(&mut token);
-         
+
         match res {
             Err(e) => return Err(e),
-            Ok(())   => {
+            Ok(()) => {
+                let mut c: char = self.get_current();
+                
+                if token.token_type == TokenT::DQUOTE__ {
+                    while self.is_not_empty() {
+                        if c == DQUOTE {
+                            token.token_type = TokenT::STRING__;
+                            self.chop();
+                            return Ok(token);
+                        }
+
+                        token.write(c);
+                        self.chop();
+                        c = self.get_current();
+                    }
+                    
+                    // We did not find the terminating quote ?
+                    let mut err_text = format!("{}:{}:{} Interminated string literal.", self.file_path, token.loc.row, token.loc.col);
+                    err_text    += &format!("Add \" to terminate the string..");
+                    return Err(make_error(&err_text));
+                }
+            
                 if token.size > 0 { 
                     return Ok(token);
                 }
                  
-                let c: char = self.get_current(); 
-                 
                 token.loc.change_loc(self.row, self.col);
+                
                 if c.is_alphanumeric() {
-                    self.collect_str(&mut token);
+                    self.collect_str(&mut token); // VARNAME__
+                    
+                    if self.get_next() == OPAR {
+                        if token.value == PRINT.to_string() {
+                            println!("found func call!");
+                            token.token_type = TokenT::PRINT__;
+                            self.chop();
+                            return Ok(token);
+                        } else {
+                            let mut err_text = format!("{}:{}:{} Undefined function {}..", self.file_path, token.loc.row, token.loc.col, token.value);
+                            err_text    += &format!("maybe you meant: print?.");
+                            return Err(make_error(&err_text));
+                        }
+                    }
                 }
-
-                if c.is_digit(10) {            
-                    self.collect_number(&mut token);            
+                
+                if c.is_digit(10) { 
+                    self.collect_number(&mut token);
                 }
 
                 return Ok(token);
@@ -364,9 +448,22 @@ impl<'a> Lexer<'a> {
     }
 }
 
+
+fn match_lexer_token(res: Result<Token, io::Error>) -> Token {
+    match res {
+        Ok(Token) => {
+            return Token;        
+        },
+        Err(e) => {
+            println!("{}", e);
+            exit(1);
+        }
+    }
+}
+
+
 #[warn(unused_variables)]
-fn main() -> Result<(), io::Error>
-{
+fn main() -> Result<(), io::Error> {
     // Command line args
     let args: Vec<String> = env::args().collect();
     let program = &args[0];
@@ -386,25 +483,49 @@ fn main() -> Result<(), io::Error>
 
     lex.display();
     lex.read()?;
-    
-    let mut t;
-    
-   
-    println!("------------------ LEXER -------------------");
+
+    let mut token;       
     
     while lex.is_not_empty() {
-        t = lex.next();
-        match t {
-            Ok(mut token) => token.display_token(&src),
-            Err(e) => {
-                println!("ERROR: {}", e);
-                return Ok(());
-            },
+        token = match_lexer_token(lex.next()); 
+        if token.token_type != TokenT::COMMENT__ && token.token_type != TokenT::NONE__ {
+            token.display_token();
         }
     }
 
-    println!("--------------------------------------");
-    
     return Ok(());
 }
+
+/*
+        match t {
+            Ok(mut token) => {
+                if token.token_type != TokenT::COMMENT__ && token.token_type != TokenT::NONE__ {
+                    if token.token_type == TokenT::PRINT__ {
+                        token = lex.next();
+                        
+                        if t.token_type == TokenT::STRING__ {
+                            let val = token.value.clone();
+                            
+                            if lex.next().unwrap().token_type == TokenT::CPAR__ {
+                                println!("{}", val);
+                                continue;
+                            } else {
+                                let mut err_text = format!("{}:{}:{} unclosed parent found {} expected )..", lex.file_path, token.loc.row, token.loc.col, token.value);
+                                err_text    += &format!("maybe you meant: print?.");
+                                println!("{}", err_text);
+                                
+                                return Ok(());
+                            }            
+                        }             
+                    }
+                }
+            },
+            Err(e) => {
+                println!("{}", e);
+                return Ok(());
+            },
+        }
+        
+    }
+    */
 

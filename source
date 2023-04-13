@@ -1,7 +1,2 @@
-/ COMMENT
-
-define init
-
-init = 1
-
-print(init)
+// COMMENT
+print("init")   // PRINT CALL		 (func print, arg init)
