@@ -1,2 +1,3 @@
 // COMMENT
-print("init")   // PRINT CALL		 (func print, arg init)
+print("value")   // PRINT CALL		 (func print, arg init)
+

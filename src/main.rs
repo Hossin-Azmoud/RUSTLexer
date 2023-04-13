@@ -109,7 +109,7 @@ impl fmt::Display for TokenT {
             TokenT::QM__        => "QM__",
             TokenT::VARNAME__   => "VARNAME__",
             TokenT::COMMENT__   => "COMMENT__",
-            TokenT::PRINT__  => "PRINT__",
+            TokenT::PRINT__     => "PRINT__",
         }; 
        
         write!(f, "{}", printable)
@@ -200,6 +200,7 @@ impl<'a> Lexer<'a> {
 
 
     fn get_char(&mut self, index: usize) -> char {   
+        
         if self.is_not_empty() {
             return char::from(self.source[index]);
         }
@@ -424,12 +425,12 @@ impl<'a> Lexer<'a> {
                 if c.is_alphanumeric() {
                     self.collect_str(&mut token); // VARNAME__
                     
-                    if self.get_next() == OPAR {
-                        if token.value == PRINT.to_string() {
-                            println!("found func call!");
+                    if self.get_current() == OPAR {
+                        if token.value == String::from("print") {
                             token.token_type = TokenT::PRINT__;
                             self.chop();
                             return Ok(token);
+                        
                         } else {
                             let mut err_text = format!("{}:{}:{} Undefined function {}..", self.file_path, token.loc.row, token.loc.col, token.value);
                             err_text    += &format!("maybe you meant: print?.");
@@ -481,7 +482,7 @@ fn main() -> Result<(), io::Error> {
     
     let mut lex: Lexer = Lexer::new(&src);
 
-    lex.display();
+    // lex.display();
     lex.read()?;
 
     let mut token;       
@@ -489,6 +490,26 @@ fn main() -> Result<(), io::Error> {
     while lex.is_not_empty() {
         token = match_lexer_token(lex.next()); 
         if token.token_type != TokenT::COMMENT__ && token.token_type != TokenT::NONE__ {
+            
+           if token.token_type == TokenT::PRINT__ {
+                token = match_lexer_token(lex.next()); 
+                
+                if token.token_type == TokenT::STRING__ {
+                    let val = token.value.clone();
+                    
+                    if match_lexer_token(lex.next()).token_type == TokenT::CPAR__ {
+                        println!("{}", val);
+                        continue;
+                    } else {
+                        let mut err_text = format!("{}:{}:{} unclosed parent found {} expected )..", lex.file_path, token.loc.row, token.loc.col, token.value);
+                        err_text    += &format!("maybe you meant: print?.");
+                        println!("{}", err_text);
+                        
+                        return Ok(());
+                    }            
+                }             
+            }
+
             token.display_token();
         }
     }
