@@ -484,16 +484,13 @@ fn main() -> Result<(), io::Error> {
 
     // lex.display();
     lex.read()?;
-
-    let mut token;       
+    let mut token;
     
     while lex.is_not_empty() {
         token = match_lexer_token(lex.next()); 
-        if token.token_type != TokenT::COMMENT__ && token.token_type != TokenT::NONE__ {
-            
+        if token.token_type != TokenT::COMMENT__ && token.token_type != TokenT::NONE__ {        
            if token.token_type == TokenT::PRINT__ {
-                token = match_lexer_token(lex.next()); 
-                
+                token = match_lexer_token(lex.next());
                 if token.token_type == TokenT::STRING__ {
                     let val = token.value.clone();
                     
@@ -504,7 +501,6 @@ fn main() -> Result<(), io::Error> {
                         let mut err_text = format!("{}:{}:{} unclosed parent found {} expected )..", lex.file_path, token.loc.row, token.loc.col, token.value);
                         err_text    += &format!("maybe you meant: print?.");
                         println!("{}", err_text);
-                        
                         return Ok(());
                     }            
                 }             
